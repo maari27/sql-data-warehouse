@@ -1,1 +1,1 @@
-# sql-data-warehouse
+# sql-data-warehouse, sql-exploration, sql-advanced-analytics
