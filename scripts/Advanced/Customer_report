@@ -1,0 +1,71 @@
+IF OBJECT_ID('gold.report_customers', 'V') IS NOT NULL
+    DROP VIEW gold.report_customers;
+GO
+
+create view gold.report_customers as 
+
+with base as(
+Select
+s.customer_key,
+s.product_key,
+s.order_number,
+s.order_date,
+s.sales,
+s.quantity,
+c.customer_number,
+concat(c.first_name,' ',c.last_name) as customer_name,
+DATEDIFF(YEAR,c.birth_date, GETDATE()) as customer_age
+from gold.fact_sales as s
+left join gold.dim_customers as c
+on s.customer_key = c.customer_key
+where order_date is not null)
+
+, base2 as(
+select 
+	customer_key,
+	customer_number,
+	customer_name,
+	customer_age,
+	count(distinct order_number) as total_orders,
+	sum(sales) as total_sales,
+	sum(quantity) as total_quantity,
+	count(distinct product_key) as total_products,
+	min(order_date) as first_order,
+	max(order_date) as last_order,
+	DATEDIFF(month,min(order_date),max(order_date)) as lifespan
+from base
+
+group by 
+customer_key,
+customer_number,
+customer_name,
+customer_age)
+
+select
+	customer_key,
+	customer_number,
+	customer_name,
+	customer_age,
+	case
+		when customer_age < 30 then 'Young'
+		when customer_age between 30 and 60 then 'Middle age'
+		else 'Old'
+	end as age_cat,
+	case 
+		when total_sales > 5000 and lifespan >= 12 then 'Vip'
+		when total_sales <= 5000 and lifespan >= 12 then 'Regular'
+		else 'New'
+	end as custom_cat,
+	total_orders,
+	total_sales,
+	total_sales/total_orders as avg_order_value,
+	total_quantity,
+	total_products,
+	first_order,
+	last_order,
+	datediff(month,last_order, GETDATE()) as recency,
+	lifespan,
+	case when lifespan = 0 then total_sales
+	else total_sales/lifespan
+	end as ave_monthly_sales
+from base2
