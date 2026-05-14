@@ -1,0 +1,80 @@
+IF OBJECT_ID('gold.report_products', 'V') IS NOT NULL
+    DROP VIEW gold.report_products;
+GO
+
+CREATE VIEW gold.report_products AS 
+
+WITH base AS (
+
+    SELECT
+        s.product_key,
+        p.product_name,
+        p.category,
+        p.subcategory,
+        p.cost,
+        p.product_id,
+        s.sales,
+        s.order_date,
+        s.quantity,
+        s.customer_key,
+        s.order_number
+    FROM gold.fact_sales AS s
+    LEFT JOIN gold.dim_products AS p
+        ON s.product_key = p.product_key
+    WHERE s.order_date IS NOT NULL
+),
+
+base2 AS (
+
+    SELECT 
+        product_key,
+        product_name,
+        category,
+        subcategory,
+        cost,
+        SUM(sales) AS total_sales,
+        SUM(quantity) AS total_quantity,
+        COUNT(DISTINCT order_number) AS total_orders,
+        COUNT(DISTINCT customer_key) AS total_customers,
+        MIN(order_date) AS first_order,
+        MAX(order_date) AS last_order,
+        DATEDIFF(MONTH, MAX(order_date), GETDATE()) AS recency,
+        DATEDIFF(MONTH, MIN(order_date), MAX(order_date)) AS lifespan
+    FROM base
+    GROUP BY 
+        product_key,
+        product_name,
+        category,
+        subcategory,
+        cost
+)
+
+SELECT
+    product_key,
+    product_name,
+    category,
+    subcategory,
+    cost,
+    CASE
+        WHEN total_sales > 50000 THEN 'High-Performer'
+        WHEN total_sales >= 10000 THEN 'Mid-Range'
+        ELSE 'Low-Performer'
+    END AS product_segment,
+    total_sales,
+    total_quantity,
+    total_orders,
+    total_customers,
+    recency,
+    lifespan,
+    round(cast(total_sales as float)/total_quantity,2) as avg_priceQ,
+    ROUND(cast(total_sales as float)/ NULLIF(total_orders, 0), 2) AS avg_order_revenue,
+    CASE 
+        WHEN lifespan = 0 THEN total_sales
+        ELSE ROUND(cast(total_sales as float)/ lifespan, 2)
+    END AS avg_monthly_revenue
+FROM base2;
+GO
+
+select top 5
+*
+from gold.report_products
