@@ -1,0 +1,137 @@
+select 
+datepart(YEAR,order_date) as year,
+datepart(MONTH,order_date) as month,
+sum(sales) as total_sales,
+count(distinct(customer_key)) as customers,
+sum(quantity) as quantity
+from gold.fact_sales
+where order_date is not null
+group by datepart(year,order_date),datepart(MONTH,order_date)
+order by datepart(year,order_date),datepart(MONTH,order_date) 
+
+--===================================================================================================
+
+select
+order_date,
+total_sales,
+avg(price) OVER (ORDER BY order_date) AS running_average_price,
+sum(quantity) OVER (ORDER BY order_date) AS running_count_sales,
+SUM(total_sales) OVER (ORDER BY order_date) AS running_total_sales
+from(
+select 
+		datetrunc(MONTH,order_date) as order_date,
+		sum(sales) as total_sales,
+		avg(price) as price,
+		count(quantity) as quantity
+		from gold.fact_sales
+		where order_date is not null
+		group by datetrunc(MONTH,order_date)
+	)t
+ 
+ --===================================================================================================
+
+select
+*,
+avg(total_sales) over (partition by product_name) as avg_sales,
+total_sales - avg(total_sales) over (partition by product_name) as diff,
+case 
+when total_sales - avg(total_sales) over (partition by product_name) > 0 then 'Above avg'
+when total_sales - avg(total_sales) over (partition by product_name) < 0 then 'Below avg'
+else 'Even'
+end as flag,
+LAG(total_sales,1) over(partition by product_name order by year) as sales_py,
+total_sales - LAG(total_sales,1) over(partition by product_name order by year) as diff2,
+case 
+when total_sales - LAG(total_sales,1) over(partition by product_name order by year) > 0 then 'Increase'
+when total_sales - LAG(total_sales,1) over(partition by product_name order by year) < 0 then 'Decrease'
+else 'Even'
+end as flag2
+from(
+	select
+	datepart(year,s.order_date) as year,
+	p.product_name,
+	sum(s.sales) as total_sales
+	from gold.fact_sales as s
+	left join gold.dim_products as p
+	on s.product_key = p.product_key
+	where order_date is not null
+	group by  datepart(year,s.order_date),p.product_name
+	)t
+order by product_name,year
+
+--===================================================================================================
+
+select 
+*,
+sum(total_sales) over() as overall_sales,
+concat(round((cast(total_sales as float)/sum(total_sales) over()*100),2),'%') as sales_part_total,
+
+sum(total_sales) over(partition by category) as overall_sales_cat,
+concat(round((cast(total_sales as float)/sum(total_sales) over(partition by category)*100),2),'%') as sales_part_cat,
+
+concat(round((cast(sum(total_sales) over(partition by category) as float)/sum(total_sales) over()*100),2),'%') as sales_part_cat_total
+
+
+from(
+	select 
+	p.category,
+	p.subcategory,
+	sum(s.sales) as total_sales
+	from gold.fact_sales as s
+	left join gold.dim_products as p
+	on s.product_key = p.product_key
+	group by p.category,p.subcategory
+)t
+order by category, subcategory
+
+--===================================================================================================
+
+select
+cost_cat,
+count(cost_cat) as products
+from(
+	select
+	product_key,
+	product_name,
+	cost,
+	case 
+	when cost < 100 then 'low'
+	when cost between 100 and 500 then 'med'
+	when cost between 500 and 1000 then 'high'
+	else 'ultra'
+	end as cost_cat
+	from gold.dim_products
+)t
+group by cost_cat
+order by products
+
+--===================================================================================================
+
+select
+custom_cat,
+count(customer_key) as total
+from (
+	select
+	customer_key,
+	sum_sales,
+	customer_month,
+	case 
+	when sum_sales > 5000 and customer_month >= 12 then 'Vip'
+	when sum_sales <= 5000 and customer_month >= 12 then 'Regular'
+	else 'New'
+	end custom_cat
+	from (
+		select 
+		c.customer_key,
+		sum(s.sales) as sum_sales,
+		min(s.order_date) as first_order,
+		max(s.order_date) as last_order,
+		DATEDIFF(month,min(s.order_date),max(s.order_date)) as customer_month
+		from gold.fact_sales as s
+		left join gold.dim_customers as c
+		on s.customer_key = c.customer_key
+		group by c.customer_key
+	)t
+)t
+	group by custom_cat
+
